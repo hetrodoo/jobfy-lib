@@ -71,12 +71,12 @@ export class Jobfy {
     this.concurrency = opts.concurrency ?? 1;
     // BullMQ lock/stall tuning. Defaults match jobfy-api's worker and are sized
     // for long-running jobs with heavy log streaming: a generous lockDuration
-    // absorbs event-loop bursts that would otherwise miss lock renewal, and
-    // maxStalledCount > 1 lets a job that stalled once (worker restart) retry
-    // instead of failing with "job stalled more than allowable limit".
+    // absorbs event-loop bursts that would otherwise miss lock renewal.
+    // maxStalledCount stays at 1 (BullMQ default) so a stalled job is not
+    // silently re-run — raise it only for idempotent handlers.
     this.lockDuration = opts.lockDuration ?? 60_000;
     this.stalledInterval = opts.stalledInterval ?? 30_000;
-    this.maxStalledCount = opts.maxStalledCount ?? 3;
+    this.maxStalledCount = opts.maxStalledCount ?? 1;
     this.maxLogLines = opts.maxLogLines ?? DEFAULT_MAX_LOG_LINES;
     // When neither persistLog nor apiUrl/apiKey is set, the lib skips final-log
     // persistence and the consumer is expected to persist inside its handler.

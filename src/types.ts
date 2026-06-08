@@ -81,9 +81,10 @@ export interface JobfyOptions {
 
   /**
    * BullMQ max stalled count — how many times a job may stall before it is
-   * force-failed with "job stalled more than allowable limit". Defaults to 3
-   * so a transient worker restart retries rather than fails the job. Note:
-   * values > 1 mean a job may run more than once, so keep handlers idempotent.
+   * force-failed with "job stalled more than allowable limit". Defaults to 1
+   * (BullMQ default) so a stalled job is not silently re-run. Note: values > 1
+   * mean a job may run more than once, so only raise it for idempotent
+   * handlers.
    */
   maxStalledCount?: number;
 
