@@ -69,7 +69,7 @@ export interface JobfyOptions {
    * BullMQ lock duration in ms — how long a job's lock is held before it must
    * be renewed. The lock auto-renews on a timer, so size this above the
    * longest the worker's event loop might stay busy between renewals. Defaults
-   * to 60000 (60s). Too low → jobs falsely "stalled" under heavy log bursts.
+   * to 120000 (120s). Too low → jobs falsely "stalled" under heavy log bursts.
    */
   lockDuration?: number;
 

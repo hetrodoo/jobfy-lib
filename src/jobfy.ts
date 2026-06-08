@@ -74,7 +74,7 @@ export class Jobfy {
     // absorbs event-loop bursts that would otherwise miss lock renewal.
     // maxStalledCount stays at 1 (BullMQ default) so a stalled job is not
     // silently re-run — raise it only for idempotent handlers.
-    this.lockDuration = opts.lockDuration ?? 60_000;
+    this.lockDuration = opts.lockDuration ?? 120_000;
     this.stalledInterval = opts.stalledInterval ?? 30_000;
     this.maxStalledCount = opts.maxStalledCount ?? 1;
     this.maxLogLines = opts.maxLogLines ?? DEFAULT_MAX_LOG_LINES;
