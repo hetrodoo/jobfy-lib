@@ -217,6 +217,27 @@ export class Jobfy {
       report: (stream, text) => this.report(stream, id, text),
     };
 
+    // Pickup breadcrumb — persisted BEFORE the handler runs so that even if
+    // this worker crashes mid-job (lock expires, job is re-run elsewhere) the
+    // execution still records which worker picked it up and on which attempt.
+    // Without this, a crashed first run leaves no trace and a later recovery
+    // run looks like the only execution. Best-effort; never blocks the job.
+    if (this.persistLog || (this.apiUrl && this.apiKey)) {
+      try {
+        await this.persistLogEntry(id, {
+          stdout: `[jobfy] picked up by worker "${this.workerName}" (attempt ${attempt})`,
+          stderr: '',
+          ranBy: this.workerName,
+        });
+      } catch (err) {
+        this.emitError(
+          new Error(
+            `Failed to persist pickup breadcrumb for ${id}: ${(err as Error).message}`,
+          ),
+        );
+      }
+    }
+
     let thrown: unknown = null;
     let result: unknown = undefined;
     try {
