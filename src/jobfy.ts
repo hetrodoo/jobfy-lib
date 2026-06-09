@@ -322,8 +322,12 @@ export class Jobfy {
   }
 
   private async persistLogEntry(id: string, entry: LogEntry): Promise<void> {
+    const stamped: LogEntry = {
+      ...entry,
+      timestamp: entry.timestamp ?? new Date().toISOString(),
+    };
     if (this.persistLog) {
-      await this.persistLog(id, entry);
+      await this.persistLog(id, stamped);
       return;
     }
     const res = await fetch(`${this.apiUrl!}/executions/${id}/log`, {
@@ -332,7 +336,7 @@ export class Jobfy {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey!,
       },
-      body: JSON.stringify(entry),
+      body: JSON.stringify(stamped),
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText}`);

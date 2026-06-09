@@ -9,6 +9,8 @@ export interface LogEntry {
   stderr: string;
   ranBy: string;
   kind?: LogEntryKind;
+  // ISO 8601 UTC, set at persist time when omitted.
+  timestamp?: string;
 }
 
 /**
