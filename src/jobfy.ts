@@ -13,6 +13,7 @@ import type {
   JobContext,
   JobHandler,
   JobfyOptions,
+  LogEntry,
   LogStream,
   PersistLog,
 } from './types';
@@ -228,6 +229,7 @@ export class Jobfy {
           stdout: `[jobfy] picked up by worker "${this.workerName}" (attempt ${attempt})`,
           stderr: '',
           ranBy: this.workerName,
+          kind: 'system',
         });
       } catch (err) {
         this.emitError(
@@ -263,6 +265,7 @@ export class Jobfy {
           stdout,
           stderr,
           ranBy: this.workerName,
+          kind: 'output',
         });
       } catch (err) {
         this.emitError(
@@ -326,10 +329,7 @@ export class Jobfy {
     }
   }
 
-  private async persistLogEntry(
-    id: string,
-    entry: { stdout: string; stderr: string; ranBy: string },
-  ): Promise<void> {
+  private async persistLogEntry(id: string, entry: LogEntry): Promise<void> {
     if (this.persistLog) {
       await this.persistLog(id, entry);
       return;

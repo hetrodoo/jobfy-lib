@@ -1,9 +1,18 @@
 export type LogStream = 'stdout' | 'stderr';
 
+/**
+ * Classifies a persisted log entry. `output` is real job stdout/stderr (one
+ * per processing attempt) — these are what the dashboard counts as attempts.
+ * `system` is a jobfy-generated breadcrumb/notice (pickup, stall, failure).
+ * Omitted on legacy entries, which are treated as `output`.
+ */
+export type LogEntryKind = 'output' | 'system';
+
 export interface LogEntry {
   stdout: string;
   stderr: string;
   ranBy: string;
+  kind?: LogEntryKind;
 }
 
 /**
