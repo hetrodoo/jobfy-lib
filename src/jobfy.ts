@@ -38,6 +38,9 @@ export class Jobfy {
   private readonly persistLog: PersistLog | null;
   private readonly workerName: string;
   private readonly concurrency: number;
+  private readonly lockDuration: number;
+  private readonly stalledInterval: number;
+  private readonly maxStalledCount: number;
   private readonly maxLogLines: number;
 
   private jobHandler: JobHandler | null = null;
@@ -66,6 +69,14 @@ export class Jobfy {
     this.persistLog = opts.persistLog ?? null;
     this.workerName = opts.workerName ?? os.hostname();
     this.concurrency = opts.concurrency ?? 1;
+    // BullMQ lock/stall tuning. Defaults match jobfy-api's worker and are sized
+    // for long-running jobs with heavy log streaming: a generous lockDuration
+    // absorbs event-loop bursts that would otherwise miss lock renewal.
+    // maxStalledCount stays at 1 (BullMQ default) so a stalled job is not
+    // silently re-run — raise it only for idempotent handlers.
+    this.lockDuration = opts.lockDuration ?? 120_000;
+    this.stalledInterval = opts.stalledInterval ?? 30_000;
+    this.maxStalledCount = opts.maxStalledCount ?? 1;
     this.maxLogLines = opts.maxLogLines ?? DEFAULT_MAX_LOG_LINES;
     // When neither persistLog nor apiUrl/apiKey is set, the lib skips final-log
     // persistence and the consumer is expected to persist inside its handler.
@@ -152,6 +163,9 @@ export class Jobfy {
           password: url.password || undefined,
         },
         concurrency: this.concurrency,
+        lockDuration: this.lockDuration,
+        stalledInterval: this.stalledInterval,
+        maxStalledCount: this.maxStalledCount,
       },
     );
 

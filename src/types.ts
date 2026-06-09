@@ -66,6 +66,29 @@ export interface JobfyOptions {
   concurrency?: number;
 
   /**
+   * BullMQ lock duration in ms — how long a job's lock is held before it must
+   * be renewed. The lock auto-renews on a timer, so size this above the
+   * longest the worker's event loop might stay busy between renewals. Defaults
+   * to 120000 (120s). Too low → jobs falsely "stalled" under heavy log bursts.
+   */
+  lockDuration?: number;
+
+  /**
+   * BullMQ stalled-check interval in ms — how often the worker scans for jobs
+   * whose lock expired. Defaults to 30000 (30s).
+   */
+  stalledInterval?: number;
+
+  /**
+   * BullMQ max stalled count — how many times a job may stall before it is
+   * force-failed with "job stalled more than allowable limit". Defaults to 1
+   * (BullMQ default) so a stalled job is not silently re-run. Note: values > 1
+   * mean a job may run more than once, so only raise it for idempotent
+   * handlers.
+   */
+  maxStalledCount?: number;
+
+  /**
    * Cap on live-log stream entries (`MAXLEN ~`). Defaults to 250 — matches
    * the API's default. The Redis stream auto-trims as you append.
    */
