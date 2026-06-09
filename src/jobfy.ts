@@ -70,11 +70,7 @@ export class Jobfy {
     this.persistLog = opts.persistLog ?? null;
     this.workerName = opts.workerName ?? os.hostname();
     this.concurrency = opts.concurrency ?? 1;
-    // BullMQ lock/stall tuning. Defaults match jobfy-api's worker and are sized
-    // for long-running jobs with heavy log streaming: a generous lockDuration
-    // absorbs event-loop bursts that would otherwise miss lock renewal.
-    // maxStalledCount stays at 1 (BullMQ default) so a stalled job is not
-    // silently re-run — raise it only for idempotent handlers.
+    // Lock/stall defaults match jobfy-api's worker.
     this.lockDuration = opts.lockDuration ?? 120_000;
     this.stalledInterval = opts.stalledInterval ?? 30_000;
     this.maxStalledCount = opts.maxStalledCount ?? 1;
@@ -218,11 +214,7 @@ export class Jobfy {
       report: (stream, text) => this.report(stream, id, text),
     };
 
-    // Pickup breadcrumb — persisted BEFORE the handler runs so that even if
-    // this worker crashes mid-job (lock expires, job is re-run elsewhere) the
-    // execution still records which worker picked it up and on which attempt.
-    // Without this, a crashed first run leaves no trace and a later recovery
-    // run looks like the only execution. Best-effort; never blocks the job.
+    // Breadcrumb before the handler runs, so a crash still records who ran it.
     if (this.persistLog || (this.apiUrl && this.apiKey)) {
       try {
         await this.persistLogEntry(id, {

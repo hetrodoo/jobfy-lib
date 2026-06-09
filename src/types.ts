@@ -1,11 +1,7 @@
 export type LogStream = 'stdout' | 'stderr';
 
-/**
- * Classifies a persisted log entry. `output` is real job stdout/stderr (one
- * per processing attempt) — these are what the dashboard counts as attempts.
- * `system` is a jobfy-generated breadcrumb/notice (pickup, stall, failure).
- * Omitted on legacy entries, which are treated as `output`.
- */
+// 'output' = real job output (counted as an attempt); 'system' = a jobfy
+// notice (pickup/stall/failure). Omitted = treated as 'output'.
 export type LogEntryKind = 'output' | 'system';
 
 export interface LogEntry {
@@ -74,26 +70,15 @@ export interface JobfyOptions {
    */
   concurrency?: number;
 
-  /**
-   * BullMQ lock duration in ms — how long a job's lock is held before it must
-   * be renewed. The lock auto-renews on a timer, so size this above the
-   * longest the worker's event loop might stay busy between renewals. Defaults
-   * to 120000 (120s). Too low → jobs falsely "stalled" under heavy log bursts.
-   */
+  /** BullMQ lock duration in ms. Defaults to 120000. */
   lockDuration?: number;
 
-  /**
-   * BullMQ stalled-check interval in ms — how often the worker scans for jobs
-   * whose lock expired. Defaults to 30000 (30s).
-   */
+  /** BullMQ stalled-check interval in ms. Defaults to 30000. */
   stalledInterval?: number;
 
   /**
-   * BullMQ max stalled count — how many times a job may stall before it is
-   * force-failed with "job stalled more than allowable limit". Defaults to 1
-   * (BullMQ default) so a stalled job is not silently re-run. Note: values > 1
-   * mean a job may run more than once, so only raise it for idempotent
-   * handlers.
+   * BullMQ max stalled count. Defaults to 1. Values > 1 can re-run a job, so
+   * only raise it for idempotent handlers.
    */
   maxStalledCount?: number;
 
