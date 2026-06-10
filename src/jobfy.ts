@@ -13,6 +13,7 @@ import type {
   JobContext,
   JobHandler,
   JobfyOptions,
+  LogEntry,
   LogStream,
   PersistLog,
 } from './types';
@@ -69,11 +70,7 @@ export class Jobfy {
     this.persistLog = opts.persistLog ?? null;
     this.workerName = opts.workerName ?? os.hostname();
     this.concurrency = opts.concurrency ?? 1;
-    // BullMQ lock/stall tuning. Defaults match jobfy-api's worker and are sized
-    // for long-running jobs with heavy log streaming: a generous lockDuration
-    // absorbs event-loop bursts that would otherwise miss lock renewal.
-    // maxStalledCount stays at 1 (BullMQ default) so a stalled job is not
-    // silently re-run — raise it only for idempotent handlers.
+    // Lock/stall defaults match jobfy-api's worker.
     this.lockDuration = opts.lockDuration ?? 120_000;
     this.stalledInterval = opts.stalledInterval ?? 30_000;
     this.maxStalledCount = opts.maxStalledCount ?? 1;
@@ -217,6 +214,24 @@ export class Jobfy {
       report: (stream, text) => this.report(stream, id, text),
     };
 
+    // Breadcrumb before the handler runs, so a crash still records who ran it.
+    if (this.persistLog || (this.apiUrl && this.apiKey)) {
+      try {
+        await this.persistLogEntry(id, {
+          stdout: `[jobfy] picked up by worker "${this.workerName}" (attempt ${attempt})`,
+          stderr: '',
+          ranBy: this.workerName,
+          kind: 'system',
+        });
+      } catch (err) {
+        this.emitError(
+          new Error(
+            `Failed to persist pickup breadcrumb for ${id}: ${(err as Error).message}`,
+          ),
+        );
+      }
+    }
+
     let thrown: unknown = null;
     let result: unknown = undefined;
     try {
@@ -242,6 +257,7 @@ export class Jobfy {
           stdout,
           stderr,
           ranBy: this.workerName,
+          kind: 'output',
         });
       } catch (err) {
         this.emitError(
@@ -305,12 +321,13 @@ export class Jobfy {
     }
   }
 
-  private async persistLogEntry(
-    id: string,
-    entry: { stdout: string; stderr: string; ranBy: string },
-  ): Promise<void> {
+  private async persistLogEntry(id: string, entry: LogEntry): Promise<void> {
+    const stamped: LogEntry = {
+      ...entry,
+      timestamp: entry.timestamp ?? new Date().toISOString(),
+    };
     if (this.persistLog) {
-      await this.persistLog(id, entry);
+      await this.persistLog(id, stamped);
       return;
     }
     const res = await fetch(`${this.apiUrl!}/executions/${id}/log`, {
@@ -319,7 +336,7 @@ export class Jobfy {
         'Content-Type': 'application/json',
         'x-api-key': this.apiKey!,
       },
-      body: JSON.stringify(entry),
+      body: JSON.stringify(stamped),
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText}`);
