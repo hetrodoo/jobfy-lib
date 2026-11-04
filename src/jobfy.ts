@@ -16,7 +16,12 @@ import type {
   LogEntry,
   LogStream,
   PersistLog,
+  RunningJobInfo,
+  WarnHandler,
 } from './types';
+
+const LOCK_RENEW_ERROR_PREFIX = 'could not renew lock for job ';
+const LAST_REPORT_MAX_CHARS = 300;
 
 interface JobData {
   command: string;
@@ -25,6 +30,11 @@ interface JobData {
 interface RunningJob {
   controller: AbortController;
   attempt: number;
+  name: string;
+  startedAt: number;
+  // Last ctx.report() — when a job hangs, this is the best hint of where.
+  lastReportAt: number | null;
+  lastReportText: string | null;
   // In-flight live-log stream writes. Awaited before the job finishes so a
   // job never reaches a terminal state with the tail of its output still
   // un-flushed to the stream.
@@ -46,6 +56,7 @@ export class Jobfy {
 
   private jobHandler: JobHandler | null = null;
   private errorHandler: ErrorHandler | null = null;
+  private warnHandler: WarnHandler | null = null;
 
   // Three Redis clients on purpose:
   //   - commandClient: XADD log lines, POST not needed (HTTP)
@@ -87,13 +98,30 @@ export class Jobfy {
    */
   on(event: 'job', handler: JobHandler): this;
   on(event: 'error', handler: ErrorHandler): this;
-  on(event: 'job' | 'error', handler: JobHandler | ErrorHandler): this {
+  on(event: 'warn', handler: WarnHandler): this;
+  on(
+    event: 'job' | 'error' | 'warn',
+    handler: JobHandler | ErrorHandler | WarnHandler,
+  ): this {
     if (event === 'job') {
       this.jobHandler = handler as JobHandler;
-    } else {
+    } else if (event === 'error') {
       this.errorHandler = handler as ErrorHandler;
+    } else {
+      this.warnHandler = handler as WarnHandler;
     }
     return this;
+  }
+
+  /**
+   * Snapshot of the jobs this process is running right now — for watchdogs
+   * that flag jobs running far longer than expected.
+   */
+  getRunningJobs(): RunningJobInfo[] {
+    const now = Date.now();
+    return [...this.running.entries()].map(([id, job]) =>
+      this.describeRunning(id, job, now),
+    );
   }
 
   /**
@@ -109,6 +137,8 @@ export class Jobfy {
     const attempt = running?.attempt ?? 1;
     const write = this.appendToStream(id, attempt, stream, text);
     if (running) {
+      running.lastReportAt = Date.now();
+      running.lastReportText = text.slice(0, LAST_REPORT_MAX_CHARS);
       // Only accumulate for final persistence while the job is live — a buffer
       // for a non-running id would never be drained (memory leak) and couldn't
       // be persisted anyway.
@@ -166,7 +196,48 @@ export class Jobfy {
       },
     );
 
-    this.worker.on('error', (err) => this.emitError(err));
+    this.worker.on('error', (err) => {
+      // BullMQ emits a bare "could not renew lock for job X" right after
+      // 'lockRenewalFailed'; that one is reported below with the job context.
+      if (err.message.startsWith(LOCK_RENEW_ERROR_PREFIX)) return;
+      this.emitError(err);
+    });
+
+    // The lock for these jobs is gone from Redis (cancelled/removed from the
+    // dashboard, stalled and re-queued, or Redis lost the key). BullMQ can no
+    // longer complete them, so the handler is only holding a concurrency slot:
+    // log where it is and abort it so a signal-aware handler frees the slot.
+    this.worker.on('lockRenewalFailed', (jobIds: string[]) => {
+      const now = Date.now();
+      for (const jobId of jobIds) {
+        const running = this.running.get(jobId);
+        if (!running) {
+          this.emitError(
+            new Error(
+              `${LOCK_RENEW_ERROR_PREFIX}${jobId} (not running in this process)`,
+            ),
+          );
+          continue;
+        }
+        const info = this.describeRunning(jobId, running, now);
+        this.emitError(
+          new Error(
+            `${LOCK_RENEW_ERROR_PREFIX}${jobId} — ${this.formatRunning(info)}; aborting handler`,
+          ),
+        );
+        running.controller.abort(new Error('jobfy: job lock lost'));
+      }
+    });
+
+    this.worker.on('stalled', (jobId: string, prev: string) => {
+      const running = this.running.get(jobId);
+      const where = running
+        ? this.formatRunning(this.describeRunning(jobId, running, Date.now()))
+        : 'not running in this process';
+      this.emitWarn(
+        `job ${jobId} stalled (was ${prev}) and was moved back to wait — ${where}`,
+      );
+    });
 
     await this.worker.waitUntilReady();
   }
@@ -202,6 +273,10 @@ export class Jobfy {
     const runningJob: RunningJob = {
       controller,
       attempt,
+      name: job.name,
+      startedAt: Date.now(),
+      lastReportAt: null,
+      lastReportText: null,
       pendingWrites: [],
     };
     this.running.set(id, runningJob);
@@ -282,6 +357,9 @@ export class Jobfy {
       if (channel !== CANCELLATIONS_CHANNEL) return;
       const running = this.running.get(message);
       if (!running) return;
+      this.emitWarn(
+        `cancellation received — ${this.formatRunning(this.describeRunning(message, running, Date.now()))}`,
+      );
       running.controller.abort();
     });
     await this.subscriberClient.subscribe(CANCELLATIONS_CHANNEL);
@@ -340,6 +418,47 @@ export class Jobfy {
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    }
+  }
+
+  private describeRunning(
+    id: string,
+    job: RunningJob,
+    now: number,
+  ): RunningJobInfo {
+    return {
+      id,
+      name: job.name,
+      attempt: job.attempt,
+      startedAt: new Date(job.startedAt).toISOString(),
+      runningForMs: now - job.startedAt,
+      lastReportAgoMs: job.lastReportAt === null ? null : now - job.lastReportAt,
+      lastReportText: job.lastReportText,
+      aborted: job.controller.signal.aborted,
+    };
+  }
+
+  private formatRunning(info: RunningJobInfo): string {
+    const secs = (ms: number) => `${Math.round(ms / 1000)}s`;
+    const last =
+      info.lastReportAgoMs === null
+        ? 'no report yet'
+        : `last report ${secs(info.lastReportAgoMs)} ago: "${info.lastReportText}"`;
+    return (
+      `job ${info.id} "${info.name}" attempt ${info.attempt}, ` +
+      `running ${secs(info.runningForMs)}${info.aborted ? ' (already aborted)' : ''}, ${last}`
+    );
+  }
+
+  private emitWarn(message: string): void {
+    if (this.warnHandler) {
+      try {
+        this.warnHandler(message);
+      } catch {
+        console.warn('[jobfy-lib] warn handler threw:', message);
+      }
+    } else {
+      console.warn('[jobfy-lib]', message);
     }
   }
 

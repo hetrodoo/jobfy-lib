@@ -116,7 +116,26 @@ export type JobHandler = (ctx: JobContext) => unknown;
 
 export type ErrorHandler = (err: Error) => void;
 
+/** Non-fatal notices (stalls, cancellations) with job context. */
+export type WarnHandler = (message: string) => void;
+
 export interface JobfyEvents {
   job: JobHandler;
   error: ErrorHandler;
+  warn: WarnHandler;
+}
+
+/** Snapshot of a job running in this process — see `Jobfy.getRunningJobs()`. */
+export interface RunningJobInfo {
+  id: string;
+  name: string;
+  attempt: number;
+  /** ISO 8601 UTC. */
+  startedAt: string;
+  runningForMs: number;
+  /** null when the handler never called report(). */
+  lastReportAgoMs: number | null;
+  lastReportText: string | null;
+  /** True once cancelled or its lock was lost — still running means the handler ignores the signal. */
+  aborted: boolean;
 }

@@ -10,6 +10,8 @@ export type {
   JobContext,
   JobHandler,
   ErrorHandler,
+  WarnHandler,
+  RunningJobInfo,
   LogStream,
   LogEntry,
   PersistLog,
