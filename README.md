@@ -99,3 +99,7 @@ The handler receives `{ id, name, command, signal, report }` and whatever it ret
 - It doesn't write to Postgres directly. The final `{stdout, stderr, ranBy}` entry is POSTed to `jobfy-api`'s `POST /executions/:id/log` endpoint.
 - It doesn't enforce a wall-clock timeout. Use `setTimeout` + `controller.abort()` in your handler if you need one.
 - It doesn't kill your handler. If you ignore `ctx.signal`, the job stays alive — your problem.
+
+## License
+
+[CC BY-NC-SA 4.0](LICENSE) © Eduardo Leite. Free for non-commercial use; redistributions and modified versions must credit the author and be released under the same license. Commercial use or any other terms require prior written permission — contact eduardo@hetrodo.dev.
